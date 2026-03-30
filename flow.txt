@@ -1,0 +1,143 @@
+                ┌──────────────────────────┐
+                │   Start Program          │                 
+                └────────────┬─────────────┘
+                             │
+                             ▼
+                ┌──────────────────────────┐
+                │ Load API Keys (.env)     │
+                └────────────┬─────────────┘
+                             │
+                             ▼
+                ┌──────────────────────────┐
+                │ Start MCP Server         │
+                │ (server.py via stdio)    │
+                └────────────┬─────────────┘
+                             │
+                             ▼
+                ┌──────────────────────────┐
+                │ Initialize MCP Session   │
+                └────────────┬─────────────┘
+                             │
+                             ▼
+                ┌──────────────────────────┐
+                │ Fetch MCP Tools          │
+                │ (read_messages, send...) │
+                └────────────┬─────────────┘
+                             │
+                             ▼
+                ┌──────────────────────────┐
+                │ Convert MCP → Groq Tools │     We convert MCP tools into a format the AI understands so it can decide when and how to use them.
+                └────────────┬─────────────┘
+                             │
+                             ▼
+                ┌──────────────────────────┐
+                │ Start Chat Loop          │
+                └────────────┬─────────────┘
+                             │
+                             ▼
+                ┌──────────────────────────┐
+                │ User Input               │
+                └────────────┬─────────────┘
+                             │
+                             ▼
+                ┌──────────────────────────┐
+                │ Send to Groq LLM         │
+                │ (with tools + history)   │
+                └────────────┬─────────────┘
+                             │
+                 ┌───────────┴───────────┐
+                 │                       │
+                 ▼                       ▼
+     ┌──────────────────────┐   ┌──────────────────────┐
+     │ Tool Call Needed?    │   │ Normal Text Reply    │
+     └────────────┬─────────┘   └────────────┬─────────┘
+                  │ YES                      │ NO
+                  ▼                          ▼
+     ┌──────────────────────────┐   ┌──────────────────────────┐
+     │ Extract Tool Name + Args │   │ Print Response to User   │
+     └────────────┬─────────────┘   └────────────┬─────────────┘
+                  │                              │
+                  ▼                              ▼
+     ┌──────────────────────────┐       ┌──────────────────────┐
+     │ Call MCP Tool            │       │ Add to Chat History  │
+     │ (Slack API triggered)    │       └────────────┬─────────┘
+     └────────────┬─────────────┘                    │
+                  │                                  ▼
+                  ▼                         ┌──────────────────┐
+     ┌──────────────────────────┐          │ Wait for next     │
+     │ Get Tool Output          │          │ user input        │
+     └────────────┬─────────────┘          └──────────────────┘
+                  │
+                  ▼
+     ┌──────────────────────────┐
+     │ Add Tool Result to Chat  │
+     │ History                  │
+     └────────────┬─────────────┘
+                  │
+                  ▼
+        🔁 LOOP BACK TO LLM (continue thinking)
+
+
+
+
+There is NO line in your code where “intent is matched to a tool.”
+
+That matching happens inside the AI model, not in your Python code.
+
+🧠 Where the matching actually happens
+
+The only line responsible for it is:
+
+response = groq_client.chat.completions.create(
+    model="llama-3.3-70b-versatile",
+    messages=messages,
+    tools=groq_tools,
+    tool_choice="auto",
+    max_tokens=1024,
+)
+
+👉 This single line does everything internally:
+
+1. Reads user input
+2. Understands intent
+3. Compares with tool list
+4. Chooses the best tool
+5. Generates arguments
+
+
+
+Because the logic is happening inside the AI model (LLaMA 3.3), not in your script.
+
+Your code is only doing:
+
+Input → Send to AI → Get decision → Execute
+
+Debug Breakpoints:-
+
+App starts
+│
+├── [BP8]  App is starting
+├── [BP9]  server.py subprocess is being created
+├── [BP10] MCP handshake happening
+├── [BP11] Tool list received from MCP
+├── [BP12] Tools converted to Groq format
+├── [BP13] System prompt set
+│
+│   ← user types something →
+│
+├── [BP14] User input captured, added to history
+│
+│   ← agent loop starts →
+│
+│   Loop #1
+│   ├── [BP1] What we're sending to Groq AI
+│   ├── [BP2] What AI replied (content vs tool_calls)
+│   ├── [BP3] AI wants a tool → enters tool execution
+│   ├── [BP4] Each tool call details (name, input, id)
+│   │   └── [HELPER 2] Actual MCP call happening
+│   ├── [BP5] Tool result received
+│   ├── [BP6] Looping back to AI with results
+│   Loop #2 (if AI needs another tool)
+│   └── [BP7] AI gave final text reply → break
+│
+└── [BP15] Turn complete, waiting for next input
