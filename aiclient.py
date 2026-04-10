@@ -45,7 +45,7 @@ async def call_mcp_tool(session: ClientSession, tool_name: str, tool_input: dict
 # ── AI LOOP ──────────────────────────────────────────────────────────────────
 
 async def run_agent_turn(session, groq_tools, messages):
-
+    retries = 0
     while True:
         try:
             response = groq_client.chat.completions.create(
@@ -56,20 +56,24 @@ async def run_agent_turn(session, groq_tools, messages):
                 max_tokens=1024,
             )
         except Exception as e:
-            print(f"\n❌ AI API Formatting Error: {e}")
-            print("🤖 (The AI hallucinated a function call and halted. Please try your prompt again.)\n")
-            break
+            if "tool_use_failed" in str(e) and retries < 3:
+                retries += 1
+                messages.append({
+                    "role": "user",
+                    "content": "You generated an invalid tool call format. Please generate your response again using native valid JSON tool arguments without any raw <function> tags."
+                })
+                # Silent retry in the background
+                continue
+            else:
+                print(f"\n❌ AI API Formatting Error: {e}")
+                print("🤖 (The AI hallucinated a function call and halted. Please try your prompt again.)\n")
+                break
 
         msg = response.choices[0].message  #extract ai response
         tool_calls = msg.tool_calls or []  # decision is stored
 
-        # ✅ ONLY print raw when tool is called
         if tool_calls:
-            print("\n🧠 AI RAW RESPONSE:")
-            print(msg)
-
-            print("\n🛠️ AI decided to call tool(s):")
-
+            # We silently process tool calls now without dumping the raw JSON to the screen
             messages.append({
                 "role": "assistant",
                 "content": msg.content or "",
@@ -90,12 +94,8 @@ async def run_agent_turn(session, groq_tools, messages):
                 tool_name = tool_call.function.name  #extract tool name
                 tool_input = json.loads(tool_call.function.arguments)
 
-                print(f"\n➡️ Tool Name: {tool_name}")
-                print(f"📥 Input: {tool_input}")
-
+                # Fetching tool result silently
                 output = await call_mcp_tool(session, tool_name, tool_input)
-
-                print(f"📤 Output:\n{output}")
 
                 messages.append({
                     "role": "tool",
@@ -149,10 +149,13 @@ async def main():
                     "content": (
                         "You are a Slack knowledge assistant. "
                         "When the user asks about a problem or needs help finding information, "
-                        "use the semantic_search tool to find relevant past discussions from Slack channels. "
-                        "Synthesize the search results into a clear, actionable answer. "
+                        "Use the semantic_search tool to find relevant past discussions from Slack channels. "
+                        "Synthesize the search results into a clear, comprehensive, actionable answer. "
+                        "IMPORTANT: If you find multiple different solutions or answers discussed across different channels, you MUST mention all of them. Do not just summarize the first one you read. "
+                        "IMPORTANT: You must ONLY answer the user's specific question. Discard and ignore any search results or context that are unrelated to the specific topic requested. "
                         "Always cite the channel name and relevant context from the results. "
-                        "Use read_messages and send_message_to_channels tools for direct channel operations. "
+                        "Use read_messages and send_message tools for direct channel operations. "
+                        "IMPORTANT: If the user asks you to read, list, or give messages from a channel, you MUST display the actual messages verbatim. Do not suppress or summarize them into a single sentence. "
                         "Extract channel IDs directly from the user message when provided. "
                         "Keep replies short and clear."
                     ),
