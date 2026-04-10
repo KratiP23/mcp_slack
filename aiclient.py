@@ -1,6 +1,10 @@
 import asyncio
 import json
 import os
+import sys
+
+sys.stdout.reconfigure(encoding='utf-8')
+
 from dotenv import load_dotenv
 from groq import Groq
 from mcp import ClientSession, StdioServerParameters
@@ -43,13 +47,18 @@ async def call_mcp_tool(session: ClientSession, tool_name: str, tool_input: dict
 async def run_agent_turn(session, groq_tools, messages):
 
     while True:
-        response = groq_client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=messages, #history
-            tools=groq_tools,  #list of tools
-            tool_choice="auto", # checks whether tool is needed or not
-            max_tokens=1024,
-        )
+        try:
+            response = groq_client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=messages, #history
+                tools=groq_tools,  #list of tools
+                tool_choice="auto", # checks whether tool is needed or not
+                max_tokens=1024,
+            )
+        except Exception as e:
+            print(f"\n❌ AI API Formatting Error: {e}")
+            print("🤖 (The AI hallucinated a function call and halted. Please try your prompt again.)\n")
+            break
 
         msg = response.choices[0].message  #extract ai response
         tool_calls = msg.tool_calls or []  # decision is stored
@@ -138,10 +147,14 @@ async def main():
                 {
                     "role": "system",
                     "content": (
-                        "You are a concise Slack assistant. "
-                        "Use tools when needed. "
-                        "Keep replies short and clear. "
-                        "Extract channel IDs directly from the user message."
+                        "You are a Slack knowledge assistant. "
+                        "When the user asks about a problem or needs help finding information, "
+                        "use the semantic_search tool to find relevant past discussions from Slack channels. "
+                        "Synthesize the search results into a clear, actionable answer. "
+                        "Always cite the channel name and relevant context from the results. "
+                        "Use read_messages and send_message_to_channels tools for direct channel operations. "
+                        "Extract channel IDs directly from the user message when provided. "
+                        "Keep replies short and clear."
                     ),
                 }
             ]

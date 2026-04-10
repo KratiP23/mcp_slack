@@ -2,6 +2,7 @@ import os
 from dotenv import load_dotenv
 from slack_sdk import WebClient
 from mcp.server.fastmcp import FastMCP
+from embeddings import SlackEmbeddingEngine
 
 # load environment variables
 load_dotenv()
@@ -11,6 +12,18 @@ mcp = FastMCP("Slack Server")
 
 # slack client
 client = WebClient(token=os.getenv("SLACK_BOT_TOKEN"))
+
+import sys
+import contextlib
+
+# embedding engine — load index on startup
+with contextlib.redirect_stdout(sys.stderr):
+    engine = SlackEmbeddingEngine()
+    _index_loaded = engine.load_index()
+    if _index_loaded:
+        print(f"✅ Semantic search ready — {engine.index.ntotal} vectors loaded.")
+    else:
+        print("⚠️ No FAISS index found. Run 'python ingest.py' first to enable semantic search.")
 
 
 # TOOL 1 — READ MESSAGES
@@ -66,7 +79,21 @@ async def send_message_to_channels(channel_ids: list[str], text: str):
     return results
 
 
-if __name__ == "__main__":
-    print("Slack MCP Server running...")
-    mcp.run()
+# TOOL 3 — SEMANTIC SEARCH across all Slack channels
+@mcp.tool()
+async def semantic_search(query: str, top_k: int = 5):
+    """Search all indexed Slack messages for content semantically similar to the query.
+    Use this tool when the user asks about a problem, wants to find past discussions,
+    or needs solutions based on team knowledge shared in Slack channels.
+    Returns the most relevant messages with channel name, author, and timestamp."""
 
+    if engine.index is None or engine.index.ntotal == 0:
+        return {"error": "No index available. Run 'python ingest.py' to build the index first."}
+
+    results = engine.search(query, top_k=top_k)
+    return results
+
+
+if __name__ == "__main__":
+    print("Slack MCP Server running...", file=sys.stderr)
+    mcp.run()
