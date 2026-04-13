@@ -13,10 +13,18 @@ This document consolidates all rules, instructions, and architecture details for
 - Activate your Python virtual environment.
 - Install dependencies from `requirements.txt`.
 - `.env` file must be present at the project root with the following keys:
-  - `SLACK_BOT_TOKEN`: The Slack app token with required scopes (`channels:history`, `channels:read`, `chat:write`, `groups:history`, etc.)
+  - `SLACK_BOT_TOKEN`: The Slack app token with required scopes (`channels:history`, `channels:read`, `chat:write`, `groups:history`, and **`files:read`** for image support).
   - `GROQ_API_KEY`: The API key to use Groq LLMs.
 
-## 3. General Workflow
+## 3. Image Indexing (New)
+- **Model**: Uses `meta-llama/llama-4-scout-17b-16e-instruct` (multimodal) on Groq.
+- **Process**: During ingestion, if a message contains an image, the system:
+    1. Downloads the private image using the bot token.
+    2. Sends it to Groq for a detailed textual description.
+    3. Indexes the description in the local FAISS semantic index.
+- **Search**: You can search for visual details (e.g., "show me the architecture diagram" or "find the screenshot of the bug") just like text.
+
+## 4. General Workflow
 
 1. **Populate Channels:** Run `python fetch_channels.py` to create/update `channels.json` mappings.
 2. **Build Knowledge Base:** Run `python ingest.py` periodically offline to fetch channel histories and build the local FAISS semantic index (`slack_faiss_index.index` and `slack_metadata.json`).

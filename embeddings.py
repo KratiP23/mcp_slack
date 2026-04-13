@@ -10,6 +10,7 @@ import json
 import os
 import pickle
 import time
+import requests
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -42,6 +43,9 @@ class SlackEmbeddingEngine:
 
         if slack_token:
             self.slack_client = WebClient(token=slack_token)
+            self.token = slack_token
+
+        self.ts_to_metadata: dict[str, dict] = {}
 
         # Ensure data directory exists
         DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -132,8 +136,9 @@ class SlackEmbeddingEngine:
                 response = self.slack_client.conversations_history(**kwargs)
 
                 for msg in response.get("messages", []):
-                    # Skip bot messages and system messages
-                    if msg.get("subtype"):
+                    # Skip certain system messages but KEEP file sharing
+                    subtype = msg.get("subtype")
+                    if subtype and subtype not in ["file_share"]:
                         continue
                     messages.append(msg)
 
@@ -191,7 +196,8 @@ class SlackEmbeddingEngine:
                     # Skip the parent message (it's already captured)
                     if msg["ts"] == thread_ts:
                         continue
-                    if msg.get("subtype"):
+                    subtype = msg.get("subtype")
+                    if subtype and subtype not in ["file_share"]:
                         continue
                     msg["thread_ts"] = thread_ts
                     replies.append(msg)
@@ -209,6 +215,13 @@ class SlackEmbeddingEngine:
                     break
 
         return replies
+
+    def download_file(self, url: str) -> bytes:
+        """Download a private Slack file using the bot token."""
+        headers = {"Authorization": f"Bearer {self.token}"}
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        return response.content
 
     # ── Index Building ───────────────────────────────────────────────────
 
@@ -259,6 +272,9 @@ class SlackEmbeddingEngine:
                 "thread_ts": m.get("thread_ts"),
                 "datetime": dt.isoformat(),
             })
+
+        # Build lookup cache
+        self.ts_to_metadata = {m["ts"]: m for m in self.metadata}
 
         print(f"✅ FAISS index built: {self.index.ntotal} vectors indexed (dim={embedding_dim}).")
         return self.index.ntotal
@@ -339,6 +355,9 @@ class SlackEmbeddingEngine:
 
         with open(VECTORIZER_PATH, "rb") as f:
             self.vectorizer = pickle.load(f)
+
+        # Build lookup cache
+        self.ts_to_metadata = {m["ts"]: m for m in self.metadata}
 
         print(f"📂 Index loaded: {self.index.ntotal} vectors, {len(self.metadata)} metadata entries.")
         return True

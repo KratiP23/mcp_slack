@@ -37,7 +37,15 @@ async def read_messages(channel_id: str, limit: int = 5):
 
     messages = []
     for i, msg in enumerate(response.get("messages", [])):
+        ts = msg.get("ts")
         text = msg.get("text", "")
+        
+        # Cross-reference with our local knowledge base for vision descriptions
+        if ts in engine.ts_to_metadata:
+            enriched_text = engine.ts_to_metadata[ts].get("text")
+            if enriched_text:
+                text = enriched_text
+
         messages.append(f"[{i+1}] {text}")
 
     if not messages:

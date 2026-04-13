@@ -9,12 +9,40 @@ Usage:
 import os
 import sys
 import time
+import sys
 from dotenv import load_dotenv
 
+sys.stdout.reconfigure(encoding='utf-8')
+
 from embeddings import SlackEmbeddingEngine
+import vision
 
 load_dotenv()
 
+
+
+def process_images_in_message(engine: SlackEmbeddingEngine, msg: dict) -> str:
+    """Detect images, download them, and get descriptions from Groq Vision."""
+    descriptions = []
+    
+    if "files" in msg:
+        for f in msg["files"]:
+            mimetype = f.get("mimetype", "")
+            if mimetype.startswith("image/"):
+                url = f.get("url_private")
+                if not url:
+                    continue
+                
+                print(f"   🖼️  Processing image: {f.get('name')}...")
+                try:
+                    content = engine.download_file(url)
+                    desc = vision.get_image_description(content)
+                    if desc:
+                        descriptions.append(f"[Image Description: {desc}]")
+                except Exception as e:
+                    print(f"   ⚠️  Image download failed: {e}")
+                    
+    return "\n".join(descriptions)
 
 def run_full_ingest(engine: SlackEmbeddingEngine):
     """Fetch ALL messages from all channels and build a fresh index."""
@@ -45,10 +73,17 @@ def run_full_ingest(engine: SlackEmbeddingEngine):
             latest_ts = max(m["ts"] for m in messages)
             channel_timestamps[ch_id] = latest_ts
 
-        # Enrich messages with channel info
+        # Enrich messages with channel info and process images
         for msg in messages:
+            text = msg.get("text", "")
+            
+            # Add image descriptions to the text
+            img_desc = process_images_in_message(engine, msg)
+            if img_desc:
+                text = f"{text}\n\n{img_desc}".strip()
+                
             all_messages.append({
-                "text": msg.get("text", ""),
+                "text": text,
                 "channel_id": ch_id,
                 "channel_name": ch_name,
                 "user": msg.get("user", "unknown"),
@@ -119,8 +154,14 @@ def run_incremental_update(engine: SlackEmbeddingEngine):
                 channel_timestamps[ch_id] = latest_ts
 
             for msg in messages:
+                text = msg.get("text", "")
+                
+                img_desc = process_images_in_message(engine, msg)
+                if img_desc:
+                    text = f"{text}\n\n{img_desc}".strip()
+                    
                 new_messages.append({
-                    "text": msg.get("text", ""),
+                    "text": text,
                     "channel_id": ch_id,
                     "channel_name": ch_name,
                     "user": msg.get("user", "unknown"),
