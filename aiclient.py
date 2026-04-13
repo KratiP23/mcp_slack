@@ -129,6 +129,13 @@ async def main():
     print("           summarize messages from C08XXXXXX")
     print("Type 'exit' to quit.\n")
 
+    try:
+        with open("d:/slack-mcp/channels.json", "r", encoding="utf-8") as f:
+            channels = json.load(f)
+            channel_context_str = ", ".join([f"Name: {k} -> ID: {v}" for k, v in channels.items()])
+    except FileNotFoundError:
+        channel_context_str = "No channel mapping found."
+
     server = StdioServerParameters(
         command="d:/slack-mcp/venv/Scripts/python.exe",
         args=["d:/slack-mcp/server.py"],
@@ -148,6 +155,8 @@ async def main():
                     "role": "system",
                     "content": (
                         "You are a Slack knowledge assistant. "
+                        f"AVAILABLE CHANNELS: {channel_context_str}. "
+                        "When the user mentions a channel by its Name, you MUST use its corresponding ID for tool calls.\n"
                         "When the user asks about a problem or needs help finding information, "
                         "Use the semantic_search tool to find relevant past discussions from Slack channels. "
                         "Synthesize the search results into a clear, comprehensive, actionable answer. "
@@ -156,7 +165,7 @@ async def main():
                         "Always cite the channel name and relevant context from the results. "
                         "Use read_messages and send_message tools for direct channel operations. "
                         "IMPORTANT: If the user asks you to read, list, or give messages from a channel, you MUST display the actual messages verbatim. Do not suppress or summarize them into a single sentence. "
-                        "Extract channel IDs directly from the user message when provided. "
+                        "Extract channel IDs directly from the user message or the AVAILABLE CHANNELS list when provided. "
                         "Keep replies short and clear."
                     ),
                 }
